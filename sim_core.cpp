@@ -1,4 +1,4 @@
-/* 046267 Computer Architecture - Spring 2017 - HW #1 */
+/* 046267 Computer Architecture - Spring 2017 - HW #1 *///TODO change
 /* This file should hold your implementation of the CPU pipeline core simulator */
 
 #include "sim_api.h"
@@ -65,20 +65,20 @@ static info extra_info;
 int SIM_CoreReset(void) {
 
 	//Setting the PC to be 0 as required
-	mips_state.pc = 0;
-	
+	mips_state.pc = 0;//TODO fix magic number
+
 	//Resetting all the registers to 0
-	for(int i = 0; i < SIM_REGFILE_SIZE ; i++) {
-		GPR(i) = 0;
+	for(int i = 0; i < SIM_REGFILE_SIZE; i++) {//TODO fix magic number
+		GPR(i) = 0;//TODO fix magic number
 	}
 
 	//Resetting the pipeline stages
-	for(int i = 1 ; i < SIM_PIPELINE_DEPTH ; i++) {
+	for(int i = 1; i < SIM_PIPELINE_DEPTH; i++) {//TODO fix magic number
 		OPCODE(i) = CMD_NOP;
 	}
 
 	//Loading the instruction of address 0x0 into the pipe
-	SIM_MemInstRead(0,&mips_state.pipeStageState[FETCH].cmd);
+	SIM_MemInstRead(0, &mips_state.pipeStageState[FETCH].cmd);//TODO fix magic number
 
 	return 0;
 }
@@ -97,10 +97,10 @@ void SIM_CoreClkTick() {
 	//If split regfile is not activated, then we write to memory what the last
 	//command wanted. By doing so - we are not allowing ID stage to read the
 	//information it needs in the previous cycle, because it wasn't written yet.
-	extra_info.previous_wb_register = 0 ;
+	extra_info.previous_wb_register = 0;//TODO fix magic number
 	if(split_regfile == false) {
 		if((OPCODE(WRITEBACK) == CMD_LOAD || OPCODE(WRITEBACK) == CMD_ADD || OPCODE(WRITEBACK) == CMD_SUB)
-				&& DST(WRITEBACK) != 0) {
+				&& DST(WRITEBACK) != 0) {//TODO fix magic number
 			GPR(DST(WRITEBACK)) = extra_info.waiting_to_write;
 			extra_info.wb_forwarding = extra_info.waiting_to_write;
 			extra_info.previous_wb_register = DST(WRITEBACK);
@@ -131,7 +131,7 @@ void SIM_CoreClkTick() {
 			case CMD_LOAD:
 				//Write the information that needs to be written back to register file
 				//Update the 'forwarding' unit from writeback
-				if(DST(WRITEBACK) != 0 ){
+				if(DST(WRITEBACK) != 0 ){//TODO fix magic number
 					GPR(DST(WRITEBACK)) = extra_info.writeback_wire;
 					extra_info.wb_forwarding = extra_info.writeback_wire;
 				}
@@ -155,7 +155,7 @@ void SIM_CoreClkTick() {
 
 	if(extra_info.memory_busy == true) {
 		//If memory didn't finish reading last cycle, check if it is finished
-		if(SIM_MemDataRead(extra_info.mem_wb_latch,&extra_info.writeback_wire) == -1 ) {
+		if(SIM_MemDataRead(extra_info.mem_wb_latch, &extra_info.writeback_wire) == -1 ) {//TODO fix magic number
 			//Reading is not finished yet. Wait another cycle by stalling the
 			//the stages that occur after "Memory".
 			update_decode();
@@ -213,7 +213,7 @@ void SIM_CoreClkTick() {
 
 	//Here we can always pass the command forward. In the worst case, when we
 	//can't handle the command yet, we'll insert nop and revert this pass.
-	pass_command_from_to(DECODE,EXECUTE);
+	pass_command_from_to(DECODE, EXECUTE);
 
 	extra_info.updated_dst_value = GPR(DST(EXECUTE));
 
@@ -253,7 +253,7 @@ void SIM_CoreClkTick() {
 
 	insert_nop_to_stage(FETCH);
 	mips_state.pc += 4;
-	SIM_MemInstRead(mips_state.pc,&mips_state.pipeStageState[FETCH].cmd);
+	SIM_MemInstRead(mips_state.pc, &mips_state.pipeStageState[FETCH].cmd);
 }
 
 
@@ -328,7 +328,8 @@ bool detect_data_hazard() {
 	//function is only used after moving the command from ID to EXE
 
 	//Case 1A  - Data hazard between ID and WB (Src1)
-	if((SRC1(EXECUTE) == DST(WRITEBACK) || SRC1(EXECUTE) == extra_info.previous_wb_register) && SRC1(EXECUTE) != 0
+	if((SRC1(EXECUTE) == DST(WRITEBACK) || SRC1(EXECUTE) == extra_info.previous_wb_register)
+			&& SRC1(EXECUTE) != 0
 			&& OPCODE(WRITEBACK) != CMD_STORE ) {
 		if(forwarding == true) {
 			SRC1VAL(EXECUTE) = extra_info.wb_forwarding;
@@ -337,8 +338,10 @@ bool detect_data_hazard() {
 	}
 
 	//Case 1B  - Data hazard between ID and WB (Src2)
-	if((SRC2(EXECUTE) == DST(WRITEBACK) || SRC2(EXECUTE) == extra_info.previous_wb_register) && SRC2(EXECUTE) != 0
-			&& ISSRC2IMM(EXECUTE) == false && OPCODE(WRITEBACK) != CMD_STORE ) {
+	if((SRC2(EXECUTE) == DST(WRITEBACK) || SRC2(EXECUTE) == extra_info.previous_wb_register)
+			&& SRC2(EXECUTE) != 0
+			&& ISSRC2IMM(EXECUTE) == false
+			&& OPCODE(WRITEBACK) != CMD_STORE ) {
 		if(forwarding == true) {
 			SRC2VAL(EXECUTE) = extra_info.wb_forwarding;
 		}
@@ -346,7 +349,8 @@ bool detect_data_hazard() {
 	}
 
 	//Case 2A  - if the command in ID is a branch or store and DST is not updated (wb)
-	if((DST(EXECUTE) == DST(WRITEBACK) || DST(EXECUTE) == extra_info.previous_wb_register) && DST(EXECUTE) != 0 &&
+	if((DST(EXECUTE) == DST(WRITEBACK) || DST(EXECUTE) == extra_info.previous_wb_register)
+			&& DST(EXECUTE) != 0 &&
 			(OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ || OPCODE(EXECUTE) == CMD_BRNEQ || OPCODE(EXECUTE) == CMD_STORE)) {
 		if(forwarding == true) {
 			extra_info.updated_dst_value = extra_info.wb_forwarding;
@@ -357,7 +361,9 @@ bool detect_data_hazard() {
 	//Case 3A  - Data hazard between ID and MEM (Src1)
 	if(SRC1(EXECUTE) == DST(MEMORY) && SRC1(EXECUTE) != 0 && OPCODE(EXECUTE) != CMD_BR
 			&& OPCODE(EXECUTE) != CMD_NOP
-			&& OPCODE(MEMORY) != CMD_BR && OPCODE(MEMORY) != CMD_BREQ && OPCODE(MEMORY) != CMD_BRNEQ
+			&& OPCODE(MEMORY) != CMD_BR
+			&& OPCODE(MEMORY) != CMD_BREQ
+			&& OPCODE(MEMORY) != CMD_BRNEQ
 			&& OPCODE(MEMORY) != CMD_STORE ) {
 		if(forwarding == true) {
 			SRC1VAL(EXECUTE) = extra_info.mem_forwarding;
@@ -397,15 +403,15 @@ void run_alu() {
 	switch(OPCODE(EXECUTE)) {
 	case CMD_ADD:
 	case CMD_LOAD:
-		extra_info.alu_result = SRC1VAL(EXECUTE) + SRC2VAL(EXECUTE);
+		extra_info.alu_result = (SRC1VAL(EXECUTE) + SRC2VAL(EXECUTE));
 		break;
 	case CMD_STORE:
-		extra_info.alu_result = SRC2VAL(EXECUTE) + extra_info.updated_dst_value;
+		extra_info.alu_result = (SRC2VAL(EXECUTE) + extra_info.updated_dst_value);
 		break;
 	case CMD_SUB:
 	case CMD_BREQ:
 	case CMD_BRNEQ:
-		extra_info.alu_result = SRC1VAL(EXECUTE) - SRC2VAL(EXECUTE);
+		extra_info.alu_result = (SRC1VAL(EXECUTE) - SRC2VAL(EXECUTE));
 		break;
 	default:
 		break;
@@ -413,7 +419,7 @@ void run_alu() {
 	//In case we need to calculate offset - for jumping
 	if(OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ ||
 			OPCODE(EXECUTE) == CMD_BRNEQ ) {
-		extra_info.address_for_jump = mips_state.pc+extra_info.updated_dst_value;
+		extra_info.address_for_jump = (mips_state.pc + extra_info.updated_dst_value);
 	}
 }
 
@@ -432,8 +438,9 @@ bool detect_load_hazard() {
 			return true;
 		}
 		//Case 1b: Src2 of EXECUTE is the same as DST of MEMORY
-		if(DST(MEMORY) == SRC2(EXECUTE) && ISSRC2IMM(EXECUTE) == false && SRC2(EXECUTE) != 0 &&
-		  (OPCODE(EXECUTE) != CMD_BR && OPCODE(EXECUTE) != CMD_HALT)) {
+		if(DST(MEMORY) == SRC2(EXECUTE) && ISSRC2IMM(EXECUTE) == false
+			&& SRC2(EXECUTE) != 0 && (OPCODE(EXECUTE) != CMD_BR
+			&& OPCODE(EXECUTE) != CMD_HALT)) {
 			return true;
 		}
 		//Case 2: DST of EXECUTE is the same as DST of MEMORY and this is a
@@ -459,7 +466,7 @@ void branch_taken() {
 	insert_nop_to_stage(EXECUTE);
 	insert_nop_to_stage(DECODE);
 	mips_state.pc = extra_info.address_for_jump;
-	SIM_MemInstRead(mips_state.pc,&mips_state.pipeStageState[FETCH].cmd);
+	SIM_MemInstRead(mips_state.pc, &mips_state.pipeStageState[FETCH].cmd);
 	extra_info.branch_resolution = false;
 }
 
@@ -477,4 +484,3 @@ void update_decode() {
 	}
 	SRC1VAL(DECODE) = GPR(SRC1(DECODE));
 }
-
