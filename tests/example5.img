@@ -16,19 +16,40 @@
 #	BREQ $dst, $src1, $src2		(Branch to PC+dst if src1 == src2)
 #	BRNEQ $dst, $src1, $src2	(Branch to PC+dst if src1 != src2)
 
+# 
+# 	for(i=3;i>0;--i){
+#	}
+# }
 # Program start at address 0, after reset.
+
+# I@0x00000000
+# LOAD $1, $0, 0x32A0 # $1 <- 0X4 
+# LOAD $2, $1, 0x32A4 # $2 <- 0X1 . hazzard on $1 
+# LOAD $3, $0, 0x32A8 # $3 <- 0X1
+# ADD $4, $0, $3 		# $4 <- $3 label
+# LOAD $5, $0, 0x32AC # $5 <- -24
+# BRNEQ $5, $4, $1	# branch to label .hazzard on $5
+# HALT $0
+
+
 I@0x00000000
-LOAD $1, $0, 0x32A0
-LOAD $2, $0, 0x32A4
-LOAD $3, $1, 0x32A4
-BREQ $1, $2, $3
-LOAD $1, $0, 0x32A4
-SUB $30, $0, $1
-BR $30
-# Program ends with infinite loop (avoid fall-through to undefined data following the end of the program)
+LOAD $1, $0, 0x32A0 # 0x0
+LOAD $2, $1, 0x32A4 # 0x4
+LOAD $3, $0, 0x32A8 # 0x8
+ADD $4, $4, $3 		# 0xc
+LOAD $5, $0, 0x32AC # 0x10
+BRNEQ $5, $4, $1	# 0x14
+HALT $0
+ADD $3, $3, $3
+ADD $4, $4, $4
+ADD $5, $5, $5
 
 # Data for this program. Any other location that is not explicitly set is implicitly set to zero.
-D@0x000032A0
-4
-0x10
-16
+D@0x000032A0 
+0x4	#32A0
+0x8	#32A4
+0x1 #32A8
+-12 #32AC
+
+
+

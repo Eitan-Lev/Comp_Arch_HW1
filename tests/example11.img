@@ -16,19 +16,35 @@
 #	BREQ $dst, $src1, $src2		(Branch to PC+dst if src1 == src2)
 #	BRNEQ $dst, $src1, $src2	(Branch to PC+dst if src1 != src2)
 
+# 
+# 	for(i=3;i>0;--i){
+#	}
+# }
 # Program start at address 0, after reset.
+
+# hazzard*5 . need to branch to LOAD. need to LOAD 0x28 in last cyc
+
+
+
 I@0x00000000
-LOAD $1, $0, 0x32A0
-LOAD $2, $0, 0x32A4
-LOAD $3, $1, 0x32A4
-BREQ $1, $2, $3
-LOAD $1, $0, 0x32A4
-SUB $30, $0, $1
-BR $30
-# Program ends with infinite loop (avoid fall-through to undefined data following the end of the program)
+ADDI $1, $0, 4
+ADDI $2, $1, 4 
+ADD $3, $2, $2
+ADD $4, $2, $3
+ADD $5, $4, $3
+ADD $6, $1, $0
+STORE $6, $5, 0x32A0 	
+BR $2	
+ADD $4, $3, $3
+ADD $7, $4, $4
+LOAD $7, $0, 0x32A4
+HALT $0
+
 
 # Data for this program. Any other location that is not explicitly set is implicitly set to zero.
-D@0x000032A0
-4
-0x10
-16
+D@0x000032A0 
+0x4	#32A0
+0x0	#32A4
+
+
+

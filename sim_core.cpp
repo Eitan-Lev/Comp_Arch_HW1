@@ -13,9 +13,9 @@
 #define SRC1VAL(stage) mipsState.pipeStageState[stage].src1Val
 #define SRC2VAL(stage) mipsState.pipeStageState[stage].src2Val
 #define WORDSIZE 4
+#define MEM_WAIT_STATE (-1)
 
-
-//aux functions
+//Auxiliary functions decleration:
 void passCommand(pipeStage srcStage, pipeStage dstStage);
 void nopToStage(pipeStage stage);
 bool isDataHazard();
@@ -24,52 +24,50 @@ void runAlu();
 void takeBranch();
 void updateDecode();
 
-//A class to hold more information needed for MIPS opeartion
-//the info class stores additional info neede for the MIPS to operate
-class info {
+//Required data for pipe operation:
+class MipsData {
 public:
+	bool isMemBusy;// If we  read from memory at the last cycle = true
 	//MEM/WB latches
-	int wbFF;	//the alu's result will be stored here after one cycle
-	int toWB; //info that will be written is stored here
-	bool branchRes;	//stores the branchws resolution to use in wb
-	//EXE/MEM latches
-	int aluRes; //res of alu is stored here
-	int jumpAddress; //the address we need to jump to is stored Here
-	//WB
-	int prevWBReg; //the reg last used in WB
+	int wbFF;	//The alu's result will be stored here after one cycle
+	int toWB; //Info that will be written is stored here
+	bool branchRes;	//Stores the branches resolution to use in wb
+	//EXE/MEM latches:
+	int aluRes; //Res of alu is stored here
+	int jumpAddress; //The address we need to jump to is stored Here
+	//WB:
+	int prevWBReg; //The reg last used in WB
 	int toWrite;
-	//variables
-	bool isMemBusy;		 // if we  read from memory at the last cycle = true
-	//For forwarding
+	//Forwarding:
 	int memToExeWire;
 	int wbToExeWire;
 	int fwdBranch;
 };
-//static vars
+
+//Static vars:
+static MipsData moreInfo;
 static SIM_coreState mipsState;
-static info moreInfo;
 
 /*! SIM_CoreReset: Reset the processor core simulator machine to start new simulation
   Use this API to initialize the processor core simulator's data structures.
   The simulator machine must complete this call with these requirements met:
   - PC = 0  (entry point for a program is at address 0)
   - All the register file is cleared (all registers hold 0)
-  - The value of IF is the instruction in address 0x0
+  - The value of IF is the instuction in address 0x0
   \returns 0 on success. <0 in case of initialization failure.
 */
 int SIM_CoreReset(void) {
+	//Reset pipe stages
+	for(int i = 1; i < SIM_PIPELINE_DEPTH; i++) {
+		OPCODE(i) = CMD_NOP;
+	}
 
 	//PC is set to 0
 	mipsState.pc = 0;
 
 	//Reset all regs to 0
-	for(int i = 0; i < SIM_REGFILE_SIZE; i++) {
-		GPR(i) = 0;
-	}
-
-	//reset pipe stages
-	for(int i = 1; i < SIM_PIPELINE_DEPTH; i++) {
-		OPCODE(i) = CMD_NOP;
+	for(int j = 0; j < SIM_REGFILE_SIZE; j++) {
+		GPR(j) = 0;
 	}
 
 	//Load the instruction in address 0x0 to pipe
@@ -84,17 +82,18 @@ int SIM_CoreReset(void) {
 void SIM_CoreClkTick() {
 
 	/*************************************************************************/
-	/* WB - Write back stage.
-			write info to reg file. if we don't use split regfile */
-	/*		then we write at the end of the cycle						 */
+	/* WB - Write back stage:
+			Write info to reg file.
+			If we don't use split regfile, then we write at the end of the cycle */
 	/*************************************************************************/
 
-	//we are not allowing ID stage to read the
-	//information it needs in the previous cycle, because it wasn't written yet
-	//if split reg file wasn't activated.
+	/* We are not allowing ID stage to read the information it needs in the
+		previous cycle, because it wasn't written yet. All this is
+		if split reg file wasn't activated.*/
 	moreInfo.prevWBReg = 0;
 	if(split_regfile == false) {
-		if((OPCODE(WRITEBACK) == CMD_ADD || OPCODE(WRITEBACK) == CMD_LOAD || OPCODE(WRITEBACK) == CMD_SUB
+		if((OPCODE(WRITEBACK) == CMD_ADD || OPCODE(WRITEBACK) == CMD_LOAD
+				|| OPCODE(WRITEBACK) == CMD_SUB
 				|| OPCODE(WRITEBACK) == CMD_ADDI || OPCODE(WRITEBACK) == CMD_SUBI)
 				&& DST(WRITEBACK) != 0) {
 			GPR(DST(WRITEBACK)) = moreInfo.toWrite;
@@ -103,59 +102,43 @@ void SIM_CoreClkTick() {
 		}
 	}
 
-	//when we jump on branch load new PC and use bubbles to clean the old one
+	//When we jump on branch load new PC and use bubbles to clean the old one
 	if(moreInfo.branchRes == true) {
 		passCommand(MEMORY,WRITEBACK);
 		takeBranch();
 		return;
 	}
 
-	//clean the pipe if memory didn't finish reading.
+	//Clean the pipe if memory didn't finish reading.
 	if(moreInfo.isMemBusy == true) {
 		nopToStage(WRITEBACK);
 	} else {
-		if(split_regfile == true) {
-			passCommand(MEMORY,WRITEBACK);
-			switch(OPCODE(WRITEBACK)) {
-			case CMD_ADD:
-			case CMD_SUB:
-			case CMD_ADDI:
-			case CMD_SUBI:
-			case CMD_LOAD:
-				//Update the 'forwarding' unit
-				//Write to reg file
-				if(DST(WRITEBACK) != 0 ){
-					GPR(DST(WRITEBACK)) = moreInfo.toWB;
-					moreInfo.wbToExeWire = moreInfo.toWB;
-				}
-				break;
-			default:
-				break;
-			}
-		} else {
-			//we just move the commands down the pipe if split reg file
-			// wasn't activated
-			passCommand(MEMORY,WRITEBACK);
+		passCommand(MEMORY,WRITEBACK);
+		if((split_regfile == true) && (OPCODE(WRITEBACK) == CMD_ADD ||
+			OPCODE(WRITEBACK) == CMD_SUB || OPCODE(WRITEBACK) == CMD_ADDI ||
+			OPCODE(WRITEBACK) == CMD_SUBI || OPCODE(WRITEBACK) == CMD_LOAD)
+			&& (DST(WRITEBACK) != 0)) {
+				//Update the 'forwarding' unit and write to reg file
+				GPR(DST(WRITEBACK)) = moreInfo.toWB;
+				moreInfo.wbToExeWire = moreInfo.toWB;
+		} else if(split_regfile == false) {
 			moreInfo.toWrite = moreInfo.toWB;
 		}
 	}
 
 	/*************************************************************************/
-	/* MEM - Memory stage. 		not all command continue past this stage						 */
+	/* MEM - Memory stage:
+			not all command continue past this stage */
 	/*************************************************************************/
 
 	if(moreInfo.isMemBusy == true) {
-		// did memory finish?
-		if(SIM_MemDataRead(moreInfo.wbFF, &moreInfo.toWB) == -1 ) {
-			updateDecode();
-			return;
-		} else {
-			moreInfo.isMemBusy = false;
-			updateDecode();
-			return;
+		//Check if memory reading is done:
+		if(SIM_MemDataRead(moreInfo.wbFF, &moreInfo.toWB) != MEM_WAIT_STATE) {
+			moreInfo.isMemBusy = false;//Continue since reading is done
 		}
-	} else {
-		//if Mem isn't busy, handle command.
+		updateDecode();
+		return;
+	} else {//Mem isn't busy, handle command:
 		passCommand(EXECUTE,MEMORY);
 		switch (OPCODE(MEMORY)) {
 			case CMD_ADD:
@@ -170,8 +153,8 @@ void SIM_CoreClkTick() {
 				moreInfo.memToExeWire = moreInfo.aluRes;
 				break;
 			case CMD_LOAD:
-				//try to read, save the address if it takes more then one cycle.
-				 if(SIM_MemDataRead(moreInfo.aluRes,&moreInfo.toWB) == -1 ) {
+				//Save the address if it takes longer then 1 cycle to read:
+				 if(SIM_MemDataRead(moreInfo.aluRes, &moreInfo.toWB) == MEM_WAIT_STATE) {
 					 moreInfo.isMemBusy = true;
 					 moreInfo.wbFF = moreInfo.aluRes;
 				 }
@@ -180,14 +163,10 @@ void SIM_CoreClkTick() {
 				moreInfo.branchRes = true;
 				break;
 			case CMD_BREQ:
-				if(moreInfo.aluRes == 0) {
-					moreInfo.branchRes = true;
-				}
+				moreInfo.branchRes = (!moreInfo.aluRes) ? true : moreInfo.branchRes;
 				break;
 			case CMD_BRNEQ:
-				if(moreInfo.aluRes != 0) {
-					moreInfo.branchRes = true;
-				}
+				moreInfo.branchRes = (moreInfo.aluRes) ? true : moreInfo.branchRes;
 				break;
 			default:
 				break;
@@ -195,25 +174,19 @@ void SIM_CoreClkTick() {
 	}
 
 	/*************************************************************************/
-	/* EXE - Execute stage. also here we check for hazards and act accordingly
+	/* EXE - Execute stage. also here we check for hazards and act accordingly */
 	/*************************************************************************/
- //allways pass the command. can't hurt.
+ //Always pass the command:
 	passCommand(DECODE, EXECUTE);
 	moreInfo.fwdBranch = GPR(DST(EXECUTE));
 
-	//check for load hazard
-	if(isLoadHazard() == true) {
+	//Check for load or data hazards:
+	if((isLoadHazard() == true) || ((isDataHazard() == true) &&  (forwarding == false))) {
 		nopToStage(EXECUTE);
 		updateDecode();
 		return;
 	}
-	//check fo rdata hazard
-	if(isDataHazard() == true &&  forwarding == false) {
-		nopToStage(EXECUTE);
-		updateDecode();
-		return;
-	}
-	//now everything is allright and we can run alu
+	//All values set correctly, continue ALU
 	runAlu();
 
 	/*************************************************************************/
@@ -238,28 +211,27 @@ void SIM_CoreClkTick() {
 void SIM_CoreGetState(SIM_coreState *curState) {
 	//Update PC
 	curState->pc = mipsState.pc;
-	//Update reg file
-	for(int i = 0; i < SIM_REGFILE_SIZE ; i++) {
-		curState->regFile[i] = GPR(i);
-	}
+	//Update stages:
 	for(int i = 0; i < SIM_PIPELINE_DEPTH ; i++) {
 		curState->pipeStageState[i].cmd.opcode = OPCODE(i);
-		curState->pipeStageState[i].cmd.src1 = SRC1(i);
-		curState->pipeStageState[i].src1Val = SRC1VAL(i);
-		curState->pipeStageState[i].cmd.src2 = SRC2(i);
-		curState->pipeStageState[i].src2Val = SRC2VAL(i);
 		curState->pipeStageState[i].cmd.isSrc2Imm = ISSRC2IMM(i);
+		curState->pipeStageState[i].cmd.src1 = SRC1(i);
+		curState->pipeStageState[i].cmd.src2 = SRC2(i);
 		curState->pipeStageState[i].cmd.dst = DST(i);
+		curState->pipeStageState[i].src1Val = SRC1VAL(i);
+		curState->pipeStageState[i].src2Val = SRC2VAL(i);
 	}
-
+	//Update reg file
+	for(int j = 0; j < SIM_REGFILE_SIZE ; j++) {
+		curState->regFile[j] = GPR(j);
+	}
 }
 
 //=============================================================================
+	//Auxiliary functions
 //=============================================================================
-//Auxiliary functions
-
 /**
- * this function implements the nop insertion method in case its needed
+ * Implements the nop insertion method in case it's needed:
  */
 void nopToStage(pipeStage stage) {
 	ISSRC2IMM(stage) = false;
@@ -271,104 +243,104 @@ void nopToStage(pipeStage stage) {
 	SRC2(stage) = 0;
 }
 
-/**
- * this function check dor load hazards
+/*
+ * Check for load hazards:
  */
 bool isLoadHazard() {
+	bool Src1ExecuteAndMemoryEqual = false, Src2ExecuteAndMemoryEqual = false,
+		isBranch = false;
 	if(OPCODE(MEMORY) == CMD_LOAD) {
-		if(DST(MEMORY) == SRC2(EXECUTE) && ISSRC2IMM(EXECUTE) == false
-			&& SRC2(EXECUTE) != 0 && (OPCODE(EXECUTE) != CMD_BR
-			&& OPCODE(EXECUTE) != CMD_HALT)) {
-			return true;
-		}
-		if(DST(MEMORY) == SRC1(EXECUTE) && SRC1(EXECUTE) != 0 &&
-		  (OPCODE(EXECUTE) != CMD_BR && OPCODE(EXECUTE) != CMD_HALT)) {
-			return true;
-		}
-
-		//branch
-		if(DST(MEMORY) == DST(EXECUTE) && DST(EXECUTE) != 0 &&
-		  (OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ || OPCODE(EXECUTE) == CMD_BRNEQ)) {
-			return true;
-		}
+		Src1ExecuteAndMemoryEqual = (DST(MEMORY) == SRC2(EXECUTE)
+			&& ISSRC2IMM(EXECUTE) == false
+			&& SRC2(EXECUTE) != 0 && OPCODE(EXECUTE) != CMD_BR
+			&& OPCODE(EXECUTE) != CMD_HALT);
+		Src2ExecuteAndMemoryEqual = (DST(MEMORY) == SRC1(EXECUTE)
+			&& SRC1(EXECUTE) != 0 &&
+		  OPCODE(EXECUTE) != CMD_BR && OPCODE(EXECUTE) != CMD_HALT);
+		isBranch = (DST(MEMORY) == DST(EXECUTE) && DST(EXECUTE) != 0 &&
+		  OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ
+			|| OPCODE(EXECUTE) == CMD_BRNEQ);
 	}
-	return false;
-}
-/**
- * this function passes command to the different pipe stages
- */
-void passCommand(pipeStage srcStage, pipeStage dstStage) {
-	mipsState.pipeStageState[dstStage].cmd =
-							mipsState.pipeStageState[srcStage].cmd;
-	SRC1VAL(dstStage) = SRC1VAL(srcStage);
-	SRC2VAL(dstStage) = SRC2VAL(srcStage);
+	return (Src1ExecuteAndMemoryEqual || Src2ExecuteAndMemoryEqual || isBranch);
 }
 
-/**
- * this function checks for data hazards and indicates which data hazard is it
+/*
+ * Check for data hazards and indicate which data hazard is it:
  */
 bool isDataHazard() {
 	bool flag = false;
+	// int dstExecute = DST(EXECUTE);
+	bool isWbStore = (OPCODE(WRITEBACK) == CMD_STORE);
+	bool idAndMem = (OPCODE(EXECUTE) != CMD_BR
+			&& OPCODE(EXECUTE) != CMD_NOP && OPCODE(MEMORY) != CMD_BR &&
+			OPCODE(MEMORY) != CMD_BREQ && OPCODE(MEMORY) != CMD_BRNEQ
+			&& OPCODE(MEMORY) != CMD_STORE);
+
+	//Data hazard between ID and WB:
 	if((SRC2(EXECUTE) == DST(WRITEBACK) || SRC2(EXECUTE) == moreInfo.prevWBReg)
-			&& SRC2(EXECUTE) != 0
-			&& ISSRC2IMM(EXECUTE) == false
-			&& OPCODE(WRITEBACK) != CMD_STORE ) {
+			&& SRC2(EXECUTE) != 0	&& ISSRC2IMM(EXECUTE) == false
+			&& !isWbStore) {
 		if(forwarding == true) {
 			SRC2VAL(EXECUTE) = moreInfo.wbToExeWire;
 		}
 		flag = true;
 	}
-
-	if((DST(EXECUTE) == DST(WRITEBACK) || DST(EXECUTE) == moreInfo.prevWBReg)
-			&& DST(EXECUTE) != 0 &&
-			(OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ || OPCODE(EXECUTE) == CMD_BRNEQ || OPCODE(EXECUTE) == CMD_STORE)) {
-		if(forwarding == true) {
-			moreInfo.fwdBranch = moreInfo.wbToExeWire;
-		}
-	    flag = true;
-	}
 	if((SRC1(EXECUTE) == DST(WRITEBACK) || SRC1(EXECUTE) == moreInfo.prevWBReg)
-			&& SRC1(EXECUTE) != 0
-			&& OPCODE(WRITEBACK) != CMD_STORE ) {
+			&& SRC1(EXECUTE) != 0	&& !isWbStore) {
 		if(forwarding == true) {
 			SRC1VAL(EXECUTE) = moreInfo.wbToExeWire;
 		}
 		flag = true;
 	}
 
-	if(SRC2(EXECUTE) == DST(MEMORY) && SRC2(EXECUTE) != 0 && OPCODE(EXECUTE) != CMD_BR
-			&& OPCODE(EXECUTE) != CMD_NOP && ISSRC2IMM(EXECUTE) == false
-			&& OPCODE(MEMORY) != CMD_BR && OPCODE(MEMORY) != CMD_BREQ && OPCODE(MEMORY) != CMD_BRNEQ
-			&& OPCODE(MEMORY) != CMD_STORE ) {
+	//DST is not updated when needed:
+	if((DST(EXECUTE) == DST(WRITEBACK) || DST(EXECUTE) == moreInfo.prevWBReg)
+			&& DST(EXECUTE) != 0 && (OPCODE(EXECUTE) == CMD_BR ||
+			OPCODE(EXECUTE) == CMD_BREQ || OPCODE(EXECUTE) == CMD_BRNEQ ||
+			OPCODE(EXECUTE) == CMD_STORE)) {
 		if(forwarding == true) {
-			SRC2VAL(EXECUTE) = moreInfo.memToExeWire;
+			moreInfo.fwdBranch = moreInfo.wbToExeWire;
 		}
-		flag = true;
+			flag = true;
 	}
-	if(SRC1(EXECUTE) == DST(MEMORY) && SRC1(EXECUTE) != 0 && OPCODE(EXECUTE) != CMD_BR
-			&& OPCODE(EXECUTE) != CMD_NOP
-			&& OPCODE(MEMORY) != CMD_BR
-			&& OPCODE(MEMORY) != CMD_BREQ
-			&& OPCODE(MEMORY) != CMD_BRNEQ
-			&& OPCODE(MEMORY) != CMD_STORE ) {
-		if(forwarding == true) {
-			SRC1VAL(EXECUTE) = moreInfo.memToExeWire;
-		}
-		flag = true;
-	}
-
 	if(DST(EXECUTE) == DST(MEMORY) && DST(EXECUTE) != 0 &&
-			(OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ || OPCODE(EXECUTE) == CMD_BRNEQ || OPCODE(EXECUTE) == CMD_STORE)) {
+			(OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ ||
+			OPCODE(EXECUTE) == CMD_BRNEQ || OPCODE(EXECUTE) == CMD_STORE)) {
 		if(forwarding == true) {
 			moreInfo.fwdBranch = moreInfo.memToExeWire;
 		}
 		 flag = true;
 	}
 
+	//Data hazard between ID and MEM:
+	if(SRC2(EXECUTE) == DST(MEMORY) && SRC2(EXECUTE) != 0
+		&& ISSRC2IMM(EXECUTE) == false &&	idAndMem) {
+		if(forwarding == true) {
+			SRC2VAL(EXECUTE) = moreInfo.memToExeWire;
+		}
+		flag = true;
+	}
+	if(SRC1(EXECUTE) == DST(MEMORY) && SRC1(EXECUTE) != 0 && idAndMem) {
+		if(forwarding == true) {
+			SRC1VAL(EXECUTE) = moreInfo.memToExeWire;
+		}
+		flag = true;
+	}
+
 	return flag;
 }
-/**
- * this function updates the decode stage
+
+/*
+ * pass command to the different pipe stages:
+ */
+void passCommand(pipeStage srcStage, pipeStage dstStage) {
+	mipsState.pipeStageState[dstStage].cmd = mipsState.pipeStageState[srcStage].cmd;
+	SRC1VAL(dstStage) = SRC1VAL(srcStage);
+	SRC2VAL(dstStage) = SRC2VAL(srcStage);
+}
+
+/*
+ * Update decode stage:
  */
 void updateDecode() {
 	if(ISSRC2IMM(DECODE) != true) {
@@ -378,8 +350,9 @@ void updateDecode() {
 	}
 	SRC1VAL(DECODE) = GPR(SRC1(DECODE));
 }
-/**
- * this function implements taking a branch.
+
+/*
+ * Branch taking implementation:
  */
 void takeBranch() {
 	nopToStage(MEMORY);
@@ -389,31 +362,32 @@ void takeBranch() {
 	SIM_MemInstRead(mipsState.pc, &mipsState.pipeStageState[FETCH].cmd);
 	moreInfo.branchRes = false;
 }
-/**
- * this function implements the alu.
+
+/*
+ * ALU implementation:
  */
 void runAlu() {
-	switch(OPCODE(EXECUTE)) {
-	case CMD_ADD:
-	case CMD_ADDI:
-	case CMD_LOAD:
-		moreInfo.aluRes = (SRC1VAL(EXECUTE) + SRC2VAL(EXECUTE));
-		break;
-	case CMD_STORE:
-		moreInfo.aluRes = (SRC2VAL(EXECUTE) + moreInfo.fwdBranch);
-		break;
-	case CMD_SUB:
-	case CMD_SUBI:
-	case CMD_BREQ:
-	case CMD_BRNEQ:
-		moreInfo.aluRes = (SRC1VAL(EXECUTE) - SRC2VAL(EXECUTE));
-		break;
-	default:
-		break;
-	}
-	//calc offset.
+	//Calc offset for branching:
 	if(OPCODE(EXECUTE) == CMD_BR || OPCODE(EXECUTE) == CMD_BREQ ||
-			OPCODE(EXECUTE) == CMD_BRNEQ ) {
+			OPCODE(EXECUTE) == CMD_BRNEQ) {
 		moreInfo.jumpAddress = (mipsState.pc + moreInfo.fwdBranch);
+	}
+	switch(OPCODE(EXECUTE)) {
+		case CMD_ADD:
+		case CMD_ADDI:
+		case CMD_LOAD:
+			moreInfo.aluRes = (SRC1VAL(EXECUTE) + SRC2VAL(EXECUTE));
+			break;
+		case CMD_STORE:
+			moreInfo.aluRes = (SRC2VAL(EXECUTE) + moreInfo.fwdBranch);
+			break;
+		case CMD_SUB:
+		case CMD_SUBI:
+		case CMD_BREQ:
+		case CMD_BRNEQ:
+			moreInfo.aluRes = (SRC1VAL(EXECUTE) - SRC2VAL(EXECUTE));
+			break;
+		default:
+			break;
 	}
 }
